@@ -1,4 +1,4 @@
-# desktop
+# atlas-desktop
 
 A macOS desktop-control CLI. Reads any app's UI as structured data (roles,
 names, positions) via the Accessibility API and drives it by name, not by
@@ -19,10 +19,19 @@ One verb per invocation, JSON in, JSON out on stdout, non-zero exit with an
 
 ## Install
 
+Clone this repository, then:
+
 ```bash
-cd desktop
 ./install.sh
 ```
+
+Or, to get a `desktop` command on your `PATH` without a checkout lying
+around, `pipx install` the repo directly by its clone URL (from this
+repo's own "Code" button).
+
+Either way still needs `cliclick` and Accessibility permission, see below,
+`install.sh` handles both for the git-clone path; `pipx` doesn't, so run
+`brew install cliclick` yourself first if you go that route.
 
 `install.sh` checks for and installs `cliclick` (Homebrew) if it's
 missing, confirms `python3` is present, makes `desktop` executable, and
@@ -171,6 +180,10 @@ truth.
 - `.calibration.json.example`, a template for the per-display geometry
   values the web layer needs. Copy to `.calibration.json` only if you want
   to see the shape, `calibrate` writes the real file.
+- `pyproject.toml` and `src/atlas_desktop/`, the `pipx install` path. This
+  is a thin packaging layer only, `src/atlas_desktop/cli.py`, `_ax.js`,
+  and `_key.js` are symlinks back to the root files above, so there's one
+  source of truth either way you install it.
 
 ## Why no package.json
 
