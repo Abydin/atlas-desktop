@@ -21,13 +21,13 @@ echo "ok  macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
 # 1. python3, the CLI's shebang targets the system interpreter specifically
 #    (/usr/bin/python3), see the header comment in `desktop` for why: a
 #    Homebrew python3 has bitten this exact tool with ScriptingBridge/AppleEvent
-#    bridging bugs before. Just check something is present here; the shebang
-#    itself pins the interpreter when the script is run directly.
-if command -v python3 >/dev/null 2>&1; then
-  echo "ok  python3: $(command -v python3) ($(python3 --version 2>&1))"
+#    bridging bugs before. Check the interpreter named by the shebang, not an
+#    arbitrary python3 on PATH: otherwise a Homebrew-only Python installation
+#    appears valid here but cannot execute ./desktop at all.
+if [ -x /usr/bin/python3 ]; then
+  echo "ok  python3: /usr/bin/python3 ($(/usr/bin/python3 --version 2>&1))"
 else
-  echo "ERROR: python3 not found. desktop's shebang is /usr/bin/python3, which ships with" >&2
-  echo "       macOS, if that's missing something is unusual about this machine." >&2
+  echo "ERROR: /usr/bin/python3 not found or not executable. desktop's shebang requires it." >&2
   FAIL=1
 fi
 
@@ -87,8 +87,13 @@ fi
 #    and give a false all-clear here).
 echo
 echo "checking Accessibility permission (probing System Events)..."
-AX_PROBE="$("$DIR/desktop" windows 2>&1 || true)"
-if echo "$AX_PROBE" | grep -q "Accessibility permission is not granted"; then
+AX_PROBE_EXIT=0
+AX_PROBE="$("$DIR/desktop" windows 2>&1)" || AX_PROBE_EXIT=$?
+if [ "$AX_PROBE_EXIT" -ne 0 ] && ! echo "$AX_PROBE" | grep -q '"error"'; then
+  echo "ERROR: could not execute \`desktop windows\` (exit $AX_PROBE_EXIT):" >&2
+  echo "$AX_PROBE" >&2
+  FAIL=1
+elif echo "$AX_PROBE" | grep -q "Accessibility permission is not granted"; then
   echo "MISSING  Accessibility permission is not granted to this terminal app." >&2
   echo "         Fix: System Settings > Privacy & Security > Accessibility, enable" >&2
   echo "         the terminal app you're running this install from (Terminal, iTerm2," >&2

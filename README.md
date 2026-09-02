@@ -142,12 +142,12 @@ desktop click-xy <x> <y>
 desktop type --text "hello" [--enter]
 desktop key --key return [--cmd] [--shift] [--option] [--control]
 desktop scroll --direction down [--amount N]
-desktop wait --role button --name "Submit" [--timeout MS] [--click]
-desktop screenshot [--outpath PATH] [--display auto|N]
+desktop wait --role button --name "Submit" [--timeout SECONDS] [--click]
+desktop screenshot [OUTPATH] [--display auto|N]
 desktop dom [--selector "a,button,input"] [--limit 200]
 desktop fill <selector> <value> [--enter]
 desktop select --selector "#country" --value "Canada"
-desktop macro --file actions.json
+desktop macro '[{"action":"focus","app":"Safari"}]'
 desktop calibrate
 ```
 
