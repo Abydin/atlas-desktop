@@ -171,8 +171,8 @@ truth.
 
 ## Files
 
-- `desktop`, the executable. `#!/usr/bin/env python3`, stdlib only, no pip
-  dependencies.
+- `desktop`, the executable. `#!/usr/bin/python3` (the system interpreter,
+  deliberately, see Dependencies above), stdlib only, no pip dependencies.
 - `_ax.js`, the Accessibility-tree engine, invoked via
   `osascript -l JavaScript`. Not meant to be called directly.
 - `_key.js`, the key-combo dispatcher, same deal.
