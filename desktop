@@ -615,7 +615,7 @@ def cmd_find(args):
 # ---------------------------------------------------------------------------
 
 def _osascript_string_literal(js):
-    """Escape a JS payload for embedding inside an AppleScript double-quoted string."""
+    """Escape text for embedding inside an AppleScript double-quoted string."""
     return js.replace("\\", "\\\\").replace('"', '\\"')
 
 
@@ -634,9 +634,10 @@ def _arc_execute_js(js, browser="Arc", _allow_retry=True):
     is reported as a real error rather than looping forever.
     """
     literal = _osascript_string_literal(js)
+    browser_literal = _osascript_string_literal(browser)
     script = (
         'tell application "%s" to tell front window\'s active tab to execute javascript "%s"'
-        % (browser, literal)
+        % (browser_literal, literal)
     )
     try:
         proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True,
@@ -1229,12 +1230,17 @@ def real_click_verified(browser, rect, verify_fn):
         in_display = (display["originXQuartz"] <= abs_x <= display["originXQuartz"] + display["widthPoints"]
                       and display["originYQuartz"] <= abs_y <= display["originYQuartz"] + display["heightPoints"])
     coords = {"x": abs_x, "y": abs_y, "display": display.get("screenIndex") if display else None}
-    if not in_window and not in_display:
+    # A real click is only safe inside the target window.  When display
+    # geometry is available, it must also fall within that display; accepting
+    # a point merely because it is somewhere else on screen can click another
+    # app after a stale calibration.
+    display_known = bool(display and display.get("originXQuartz") is not None)
+    if not in_window or (display_known and not in_display):
         return {"ok": False, "verified": False, "verifiedBy": None, "method": "real-click",
                 "coords": coords, "reason": "point-out-of-bounds",
                 "jsGeometryAgreesWithAx": geometry_agrees, "jsGeometryCheck": geometry_detail,
-                "detail": ("computed click point (%d,%d) falls outside both the window rect "
-                            "and the resolved display frame, refused before clicking" % (abs_x, abs_y))}
+                "detail": ("computed click point (%d,%d) falls outside the target window or "
+                           "the resolved display frame, refused before clicking" % (abs_x, abs_y))}
 
     # Activate-first (Bug #3's intermittency fix): when Arc wasn't already
     # frontmost, the FIRST synthetic click only raised the window (macOS's
@@ -2465,7 +2471,7 @@ def find_one(role, name, index, app, window_index=0, limit=50):
     if "error" in found:
         return None, found
     matches = found.get("matches", [])
-    if index >= len(matches):
+    if index < 0 or index >= len(matches):
         return None, {"error": "no match at index %d (found %d matches for role=%s name=%s)"
                                 % (index, len(matches), role, name)}
     return matches[index], None
@@ -3106,10 +3112,11 @@ def _open_calibration_tab_http(browser, url=CALIBRATION_FALLBACK_URL):
     extra tab-by-index bookkeeping. Needs network. Returns (ok, error).
     """
     literal = url.replace("\\", "\\\\").replace('"', '\\"')
+    browser_literal = _osascript_string_literal(browser)
     script = (
         'tell application "%s" to tell front window to make new tab '
         'with properties {URL:"%s"}'
-    ) % (browser, literal)
+    ) % (browser_literal, literal)
     proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if proc.returncode != 0:
         return False, proc.stderr.strip()
@@ -3125,7 +3132,8 @@ def _close_calibration_tab(browser):
     own behavior, not something this script enforces or verifies.
     """
     subprocess.run(
-        ["osascript", "-e", 'tell application "%s" to tell front window to close active tab' % browser],
+        ["osascript", "-e", 'tell application "%s" to tell front window to close active tab'
+         % _osascript_string_literal(browser)],
         capture_output=True, text=True,
     )
 
