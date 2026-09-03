@@ -24,8 +24,32 @@ echo "ok  macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
 #    bridging bugs before. Check the interpreter named by the shebang, not an
 #    arbitrary python3 on PATH: otherwise a Homebrew-only Python installation
 #    appears valid here but cannot execute ./desktop at all.
+#    -x alone can pass while the binary itself stalls: on a machine without
+#    Xcode Command Line Tools, /usr/bin/python3 is Apple's CLT stub, which
+#    pops a GUI install prompt and hangs instead of returning a version. Probe
+#    with a timeout so a stuck CLT prompt fails fast instead of hanging the
+#    install. `timeout`/`gtimeout` aren't guaranteed present on stock macOS
+#    (no GNU coreutils by default), so this rolls its own: background the
+#    probe, poll for it, kill it if it's still alive after 5s.
 if [ -x /usr/bin/python3 ]; then
-  echo "ok  python3: /usr/bin/python3 ($(/usr/bin/python3 --version 2>&1))"
+  PY3_OUT="$(mktemp)"
+  /usr/bin/python3 --version >"$PY3_OUT" 2>&1 &
+  PY3_PID=$!
+  PY3_WAITED=0
+  while kill -0 "$PY3_PID" 2>/dev/null && [ "$PY3_WAITED" -lt 5 ]; do
+    sleep 1
+    PY3_WAITED=$((PY3_WAITED + 1))
+  done
+  if kill -0 "$PY3_PID" 2>/dev/null; then
+    kill "$PY3_PID" 2>/dev/null || true
+    echo "ERROR: /usr/bin/python3 exists but did not respond within 5s (Xcode Command Line" >&2
+    echo "       Tools install prompt?). Run 'xcode-select --install' and re-run this script." >&2
+    FAIL=1
+  else
+    wait "$PY3_PID" 2>/dev/null
+    echo "ok  python3: /usr/bin/python3 ($(cat "$PY3_OUT"))"
+  fi
+  rm -f "$PY3_OUT"
 else
   echo "ERROR: /usr/bin/python3 not found or not executable. desktop's shebang requires it." >&2
   FAIL=1

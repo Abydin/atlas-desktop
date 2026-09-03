@@ -1230,17 +1230,30 @@ def real_click_verified(browser, rect, verify_fn):
         in_display = (display["originXQuartz"] <= abs_x <= display["originXQuartz"] + display["widthPoints"]
                       and display["originYQuartz"] <= abs_y <= display["originYQuartz"] + display["heightPoints"])
     coords = {"x": abs_x, "y": abs_y, "display": display.get("screenIndex") if display else None}
-    # A real click is only safe inside the target window.  When display
-    # geometry is available, it must also fall within that display; accepting
-    # a point merely because it is somewhere else on screen can click another
-    # app after a stale calibration.
+    # ax_frame is guaranteed non-None here (the no-window-frame early return
+    # above already fired otherwise), so in_window is the sound refusal
+    # condition: a point inside the target window IS a safe click regardless
+    # of which display resolve_window_display() picked. Display geometry is
+    # a secondary cross-check, not a gate -- under a hardware mirror or a
+    # window straddling two displays, resolve_window_display() can pick the
+    # wrong display for a point that is genuinely inside the target window
+    # (see the mirrored-display corruption note above), so a display
+    # mismatch is surfaced as a warning through jsGeometryCheck rather than
+    # refusing a click that is otherwise known-good.
     display_known = bool(display and display.get("originXQuartz") is not None)
-    if not in_window or (display_known and not in_display):
+    if display_known and not in_display:
+        geometry_detail = dict(geometry_detail) if geometry_detail else {}
+        geometry_detail["displayMismatchWarning"] = (
+            "computed click point (%d,%d) is inside the target window but outside the "
+            "resolved display frame (display %s) -- display resolution may be wrong "
+            "(e.g. hardware-mirrored display or a window straddling two displays); "
+            "click proceeding because it is inside the window" % (abs_x, abs_y, coords["display"]))
+    if not in_window:
         return {"ok": False, "verified": False, "verifiedBy": None, "method": "real-click",
                 "coords": coords, "reason": "point-out-of-bounds",
                 "jsGeometryAgreesWithAx": geometry_agrees, "jsGeometryCheck": geometry_detail,
-                "detail": ("computed click point (%d,%d) falls outside the target window or "
-                           "the resolved display frame, refused before clicking" % (abs_x, abs_y))}
+                "detail": ("computed click point (%d,%d) falls outside the target window, "
+                           "refused before clicking" % (abs_x, abs_y))}
 
     # Activate-first (Bug #3's intermittency fix): when Arc wasn't already
     # frontmost, the FIRST synthetic click only raised the window (macOS's
