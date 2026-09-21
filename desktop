@@ -2515,12 +2515,20 @@ def _click_web_signature_js():
     signals (location.href, document.body.childElementCount) that catch a
     click that navigated or mounted/unmounted content rather than toggling
     the element's own attributes. Also returns the element's rect so a
-    real-click escalation, if needed, doesn't have to re-resolve it."""
+    real-click escalation, if needed, doesn't have to re-resolve it.
+
+    When the marker is GONE this returns status 'target-lost' WITH the
+    page-wide signals still attached, rather than a bare error. A click on a
+    link legitimately destroys its own element by navigating, and the caller
+    needs the new href to tell that success apart from a target that merely
+    vanished. Reporting it as an error made every navigating click read as a
+    failure (measured: 1/6 success, the rest false negatives)."""
     return (
         "(function(){"
         "var el=document.querySelector('[data-atlas-select-target]');"
-        "if(!el)return JSON.stringify({status:'error',reason:'target-lost',"
-        "detail:'target element lost (page may have re-rendered)'});"
+        "if(!el)return JSON.stringify({status:'target-lost',"
+        "detail:'target element lost (page navigated or re-rendered)',"
+        "page:{href:location.href,bodyCount:document.body?document.body.childElementCount:null}});"
         "var r=el.getBoundingClientRect();"
         "return JSON.stringify({status:'read',signature:{"
         "ariaPressed:el.getAttribute('aria-pressed'),"
@@ -2588,11 +2596,20 @@ def click_web(browser, selector, name, index):
             return None, r.get("detail")
         return r, None
 
+    def _href_of(snap):
+        if not snap:
+            return None
+        if snap.get("status") == "target-lost":
+            return (snap.get("page") or {}).get("href")
+        return (snap.get("signature") or {}).get("href")
+
     snap1, err1 = _read_signature()
-    if snap1 is None:
+    if snap1 is None or snap1.get("status") == "target-lost":
         _arc_execute_js(_cleanup_markers_js(), browser)
-        return make_envelope(False, "click", False, reason="signature-read-failed", detail=err1, target=target)
+        return make_envelope(False, "click", False, reason="signature-read-failed",
+                              detail=err1 or (snap1 or {}).get("detail"), target=target)
     target["rect"] = snap1.get("rect")
+    url_before = _href_of(snap1)
 
     ok2, out2, err2 = _arc_execute_js(_click_web_dispatch_js(), browser)
     if not ok2 or not out2:
@@ -2606,6 +2623,23 @@ def click_web(browser, selector, name, index):
         _arc_execute_js(_cleanup_markers_js(), browser)
         return make_envelope(False, "click", False, reason="signature-read-failed", detail=err2b, target=target)
 
+    # The element is gone. If the URL moved, the click navigated, which is a
+    # real observed transition -- the element was destroyed BY its own success.
+    # If the URL did not move, the target merely vanished and that is still
+    # unverified, exactly as before.
+    if snap2.get("status") == "target-lost":
+        url_after = _href_of(snap2)
+        _arc_execute_js(_cleanup_markers_js(), browser)
+        if url_before and url_after and url_after != url_before:
+            env = make_envelope(True, "click", True, verifiedBy="navigation", method="js",
+                                target=target, coords=None)
+            env["urlBefore"], env["urlAfter"] = url_before, url_after
+            return env
+        env = make_envelope(False, "click", False, reason="target-lost-no-navigation",
+                            detail=snap2.get("detail"), target=target)
+        env["urlBefore"], env["urlAfter"] = url_before, url_after
+        return env
+
     if snap2.get("signature") != snap1.get("signature"):
         _arc_execute_js(_cleanup_markers_js(), browser)
         return make_envelope(True, "click", True, verifiedBy="state-change", method="js",
@@ -2618,6 +2652,14 @@ def click_web(browser, selector, name, index):
         snap3, err3 = _read_signature()
         if snap3 is None:
             return False, None, err3
+        if snap3.get("status") == "target-lost":
+            # Same rule as the dispatched path: gone AND the URL moved is a
+            # navigation (success); gone with the URL unchanged is not. Do not
+            # let a missing signature read as a state change by accident.
+            after = _href_of(snap3)
+            if url_before and after and after != url_before:
+                return True, "navigation", snap3
+            return False, None, snap3
         changed = snap3.get("signature") != snap1.get("signature")
         return changed, ("state-change" if changed else None), snap3
 
